@@ -142,7 +142,7 @@ O `ServicoEstoque` não importa `sqlite3` e não escreve SQL. Ele recebe um repo
 | Herança e sobrescrita | `Entrada`, `Saida` e `Ajuste` herdam de `Movimentacao` e sobrescrevem `aplicar()`. |
 | Contrato abstrato | `Movimentacao` usa `ABC` e `@abstractmethod` para definir o comportamento esperado. |
 | Polimorfismo | `ServicoEstoque._movimentar()` chama `movimentacao.aplicar(produto)` sem conhecer o tipo concreto. |
-| Tratamento de exceções | `DadosInvalidos`, `EstoqueInsuficiente`, `ProdutoNaoEncontrado`, `NomeDuplicado` e `ProdutoComMovimentacoes`. |
+| Tratamento de exceções | `DadosInvalidos`, `EstoqueInsuficiente`, `ProdutoNaoEncontrado`, `NomeDuplicado`, `ProdutoComMovimentacoes`, `MovimentacaoInconsistente` e `SaldoDesatualizado`. |
 | Separação de responsabilidades | Domínio, serviço, repositório e banco em módulos distintos. |
 | Precisão monetária | `Decimal` no domínio; o preço é gravado como texto no SQLite para não perder precisão. |
 
@@ -158,6 +158,14 @@ Não foram criadas subclasses de `Produto` apenas para demonstrar herança. A ab
 - O saldo nunca pode ficar negativo.
 - Uma saída maior que o saldo disponível levanta `EstoqueInsuficiente` e não altera o estado.
 - `abaixo_do_minimo()` usa a comparação estrita `quantidade < quantidade_minima`; portanto, estar exatamente no mínimo **não** gera alerta.
+
+### Movimentações e integridade
+
+- O repositório revalida os parâmetros na fronteira do SQLite: identificador positivo, tipo suportado, saldos inteiros não negativos, quantidade positiva em entradas e saídas e observação textual.
+- Ajustes aceitam saldo absoluto zero; nesse caso, o campo de quantidade também deve ser zero.
+- A coerência aritmética é conferida antes da escrita: entrada exige `novo = anterior + quantidade`, saída exige `novo = anterior - quantidade` e ajuste exige `quantidade = novo saldo`.
+- Uma saída maior que o saldo anterior levanta `EstoqueInsuficiente`; valores incoerentes levantam `MovimentacaoInconsistente`; parâmetros malformados levantam `DadosInvalidos`.
+- Nenhuma dessas rejeições altera o saldo ou grava histórico.
 
 ### Nomes duplicados
 
@@ -223,6 +231,10 @@ O preço é armazenado como texto e convertido de volta para `Decimal` no reposi
 ### Transações
 
 A operação de movimentação atualiza a quantidade do produto e insere a linha do histórico dentro do mesmo bloco `with conexao`. Se a inserção do histórico falhar, o SQLite desfaz também a atualização da quantidade. Esse comportamento é testado com uma falha injetada no segundo `INSERT`.
+
+A atualização do saldo é condicional: usa `WHERE id = ? AND quantidade = ?` com o saldo que o serviço leu. Se outro processo alterar o saldo antes da gravação, nenhuma linha é atualizada, a operação levanta `SaldoDesatualizado` e o histórico não é gravado. Isso detecta a corrida, mas não transforma a aplicação em um sistema multiusuário com controle de concorrência completo.
+
+A remoção de produto com histórico continua bloqueada por `ON DELETE RESTRICT`. Apenas a violação de chave estrangeira correspondente é traduzida para `ProdutoComMovimentacoes`; outras violações de integridade continuam sendo propagadas.
 
 ### Como os dados sobrevivem
 
@@ -309,7 +321,7 @@ python -m pytest tests/test_persistencia.py -v
 python -m pytest aula02-paradigmas/test_relatorio.py -v
 ```
 
-Na validação local mais recente, **107 casos de teste passaram** em Python 3.14.8 com pytest 9.1.1. Os 11 testes que já existiam foram preservados; os novos testes cobrem o domínio integrado, a persistência real e a correção do relatório da Aula 2.
+Na validação local desta manutenção, **151 casos de teste passaram** em Python 3.12.14 com pytest 9.1.1. A execução remota do commit de merge `a9ec7ae`, com as versões anteriores das actions, registrou `107 passed`; os testes adicionados nesta branch ainda serão executados pelo CI depois da publicação.
 
 A suíte cobre, entre outros pontos:
 
@@ -321,23 +333,31 @@ A suíte cobre, entre outros pontos:
 - registro de entradas, saídas e ajustes no histórico;
 - persistência depois de fechar e reabrir uma conexão com o arquivo SQLite;
 - reversão transacional quando a gravação do histórico falha;
-- preservação das invariantes após operações inválidas.
+- validação defensiva de id, tipo, saldos, quantidade e observação na fronteira do repositório;
+- rejeição de entrada, saída e ajuste aritmeticamente incoerentes;
+- detecção de saldo desatualizado sem gravação de histórico;
+- preservação das invariantes após operações inválidas;
+- tradução específica da restrição de remoção, sem mascarar outros erros de integridade.
 
 ## Integração contínua
 
-O workflow `.github/workflows/testes.yml` foi preparado para executar em `push` e `pull_request`:
+O workflow `.github/workflows/testes.yml` está publicado na `main` e executa em `push` e `pull_request`:
 
 ```text
-checkout do repositório
+checkout do repositório (actions/checkout@v7)
         |
-configuração do Python 3.12
+configuração do Python 3.12 (actions/setup-python@v7)
         |
 instalação de requirements-dev.txt
         |
 python -m pytest -v
 ```
 
-O arquivo está apenas no repositório local nesta etapa; nenhuma execução remota, publicação ou merge foi realizada.
+Nesta branch de manutenção, as actions foram atualizadas para `actions/checkout@v7` e `actions/setup-python@v7`, versões compatíveis com Node.js 24. Essa atualização ainda não foi publicada nem executada no GitHub.
+
+No commit de merge `a9ec7aec374077d6edb6172fdd0cceb364336729`, a execução [40580944062](https://github.com/Satth/projeto-code/actions/runs/40580944062), com as versões anteriores das actions, foi concluída com sucesso e os logs registraram `107 passed`.
+
+Esse resultado comprova aquela execução específica. Execuções futuras dependem do código e do ambiente de cada `push` ou `pull_request` e não são garantidas por esse histórico.
 
 ## Relatório da Aula 2: categorias e imposto
 
@@ -357,13 +377,13 @@ Os novos testes cobrem categorias com a mesma grafia, capitalização diferente,
 
 ## Limitações e decisões
 
-- A aplicação é local e single-user; não há controle de concorrência entre dois processos alterando o mesmo produto.
+- A aplicação é local e single-user. A gravação condicional detecta que o saldo mudou desde a leitura e recusa a movimentação, mas isso não substitui um controle de concorrência multiusuário.
 - `COLLATE NOCASE` do SQLite ignora maiúsculas e minúsculas para caracteres ASCII. Nomes acentuados podem não ser tratados como duplicados em variações de caixa; uma normalização Unicode explícita seria necessária para esse caso.
 - O saldo inicial do cadastro não gera uma linha de histórico; ele é o ponto de partida do produto. Entradas, saídas e ajustes posteriores são registrados.
-- Não há migrações de schema nem rotina de backup. O arquivo SQLite deve ser preservado pelo usuário.
+- Não há migrações de schema nem rotina de backup. O schema não foi alterado nesta manutenção. Ele mantém `CHECK` para o tipo e para os saldos não negativos em `movimentacoes`, mas não impõe `CHECK` de quantidade positiva; essa regra, assim como a coerência aritmética, é validada no repositório Python antes da escrita. O arquivo SQLite deve ser preservado pelo usuário.
 - A remoção de produto com histórico é bloqueada de propósito para não apagar o rastro das movimentações.
 - Não há API REST, interface web ou interface gráfica nesta etapa.
-- O workflow de CI foi criado localmente, mas não foi executado no GitHub nem publicado.
+- A versão anterior do workflow de CI está publicada e foi aprovada no commit de merge `a9ec7ae`; a atualização para as actions v7 desta branch ainda não foi executada remotamente, e nenhum resultado garante todas as execuções futuras.
 
 ## Equipe
 

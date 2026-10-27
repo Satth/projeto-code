@@ -10,6 +10,7 @@ from estoque.erros import (
     NomeDuplicado,
     ProdutoComMovimentacoes,
     ProdutoNaoEncontrado,
+    SaldoDesatualizado,
 )
 
 
@@ -217,4 +218,28 @@ def test_falha_na_persistencia_do_historico_nao_altera_o_banco(
         servico.dar_saida(item.id, 4)
 
     assert servico.buscar(item.id).quantidade == 10
+    assert servico.historico(item.id) == []
+
+
+def test_conflito_de_saldo_entre_leitura_e_gravacao(
+    servico, repositorio, conexao, monkeypatch
+):
+    item = servico.cadastrar("Teclado", "150.00", 10, 5)
+    aplicar_original = repositorio.aplicar_movimentacao
+
+    def aplicar_com_saldo_alterado(**kwargs):
+        conexao.execute(
+            "UPDATE produtos SET quantidade = 20 WHERE id = ?", (item.id,)
+        )
+        conexao.commit()
+        return aplicar_original(**kwargs)
+
+    monkeypatch.setattr(
+        repositorio, "aplicar_movimentacao", aplicar_com_saldo_alterado
+    )
+
+    with pytest.raises(SaldoDesatualizado):
+        servico.dar_entrada(item.id, 5)
+
+    assert servico.buscar(item.id).quantidade == 20
     assert servico.historico(item.id) == []

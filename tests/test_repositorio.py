@@ -1,15 +1,34 @@
 """Testes da tradução entre domínio e SQLite."""
 
+import sqlite3
 from decimal import Decimal
 
 import pytest
 
 from estoque.erros import (
+    DadosInvalidos,
+    EstoqueInsuficiente,
+    MovimentacaoInconsistente,
     NomeDuplicado,
     ProdutoComMovimentacoes,
     ProdutoNaoEncontrado,
+    SaldoDesatualizado,
 )
 from estoque.produto import Produto
+from estoque.repositorio import RepositorioEstoque
+
+
+def _aplicar(repositorio, produto_id, **alteracoes):
+    parametros = {
+        "produto_id": produto_id,
+        "quantidade_anterior": 10,
+        "nova_quantidade": 15,
+        "tipo": "entrada",
+        "quantidade": 5,
+        "observacao": "",
+    }
+    parametros.update(alteracoes)
+    return repositorio.aplicar_movimentacao(**parametros)
 
 
 def test_salvar_buscar_e_listar(repositorio):
@@ -177,3 +196,222 @@ def test_falha_ao_gravar_historico_reverte_a_quantidade(repositorio, monkeypatch
 
     assert repositorio.buscar(produto_id).quantidade == 10
     assert repositorio.listar_movimentacoes() == []
+
+
+@pytest.mark.parametrize("tipo", ["transferencia", "", None, 1, True])
+def test_tipo_de_movimentacao_desconhecido_e_recusado(repositorio, tipo):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(DadosInvalidos):
+        _aplicar(repositorio, produto_id, tipo=tipo)
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+@pytest.mark.parametrize("produto_id", [0, -1, True, 1.5, "1", None])
+def test_id_de_produto_invalido_e_recusado(repositorio, produto_id):
+    existente = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(DadosInvalidos):
+        _aplicar(repositorio, produto_id)
+
+    assert repositorio.buscar(existente).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+@pytest.mark.parametrize(
+    "campo,valor",
+    [
+        ("quantidade_anterior", -1),
+        ("quantidade_anterior", True),
+        ("quantidade_anterior", 1.5),
+        ("quantidade_anterior", "10"),
+        ("nova_quantidade", -1),
+        ("nova_quantidade", True),
+        ("nova_quantidade", 1.5),
+        ("nova_quantidade", "15"),
+    ],
+)
+def test_saldos_invalidos_sao_recusados(repositorio, campo, valor):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(DadosInvalidos):
+        _aplicar(repositorio, produto_id, **{campo: valor})
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+@pytest.mark.parametrize("tipo", ["entrada", "saida"])
+@pytest.mark.parametrize("quantidade", [0, -1, True, 1.5, "5"])
+def test_entrada_e_saida_exigem_quantidade_positiva(
+    repositorio, tipo, quantidade
+):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(DadosInvalidos):
+        _aplicar(
+            repositorio,
+            produto_id,
+            tipo=tipo,
+            quantidade=quantidade,
+            nova_quantidade=5,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+@pytest.mark.parametrize("observacao", [123, True, 1.5])
+def test_observacao_invalida_e_recusada(repositorio, observacao):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(DadosInvalidos):
+        _aplicar(repositorio, produto_id, observacao=observacao)
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+def test_entrada_incoerente_com_os_saldos_e_recusada(repositorio):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(MovimentacaoInconsistente):
+        _aplicar(
+            repositorio,
+            produto_id,
+            quantidade_anterior=10,
+            quantidade=5,
+            nova_quantidade=14,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+def test_saida_maior_que_o_saldo_e_recusada(repositorio):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(EstoqueInsuficiente):
+        _aplicar(
+            repositorio,
+            produto_id,
+            tipo="saida",
+            quantidade_anterior=10,
+            quantidade=11,
+            nova_quantidade=0,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+def test_saida_incoerente_com_os_saldos_e_recusada(repositorio):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(MovimentacaoInconsistente):
+        _aplicar(
+            repositorio,
+            produto_id,
+            tipo="saida",
+            quantidade_anterior=10,
+            quantidade=4,
+            nova_quantidade=7,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+def test_ajuste_exige_quantidade_igual_ao_novo_saldo(repositorio):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(MovimentacaoInconsistente):
+        _aplicar(
+            repositorio,
+            produto_id,
+            tipo="ajuste",
+            quantidade_anterior=10,
+            quantidade=4,
+            nova_quantidade=5,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+@pytest.mark.parametrize("quantidade", [-1, True, 1.5, "0"])
+def test_ajuste_exige_quantidade_inteira_nao_negativa(
+    repositorio, quantidade
+):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(DadosInvalidos):
+        _aplicar(
+            repositorio,
+            produto_id,
+            tipo="ajuste",
+            quantidade=quantidade,
+            nova_quantidade=0,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+def test_ajuste_para_zero_e_gravado_atomicamente(repositorio):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    _aplicar(
+        repositorio,
+        produto_id,
+        tipo="ajuste",
+        quantidade_anterior=10,
+        quantidade=0,
+        nova_quantidade=0,
+    )
+
+    assert repositorio.buscar(produto_id).quantidade == 0
+    historico = repositorio.listar_movimentacoes(produto_id)
+    assert len(historico) == 1
+    assert historico[0].tipo == "ajuste"
+    assert historico[0].quantidade == 0
+    assert historico[0].quantidade_anterior == 10
+    assert historico[0].quantidade_nova == 0
+
+
+def test_saldo_desatualizado_e_recusado_sem_gravar_historico(repositorio):
+    produto_id = repositorio.salvar(Produto("Teclado", "150.00", 10, 5))
+
+    with pytest.raises(SaldoDesatualizado):
+        _aplicar(
+            repositorio,
+            produto_id,
+            quantidade_anterior=9,
+            quantidade=1,
+            nova_quantidade=10,
+        )
+
+    assert repositorio.buscar(produto_id).quantidade == 10
+    assert repositorio.listar_movimentacoes() == []
+
+
+class _ConexaoComFalhaDeIntegridade:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, *args, **kwargs):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed: produtos.nome")
+
+
+def test_remocao_nao_mascara_erro_de_integridade_inesperado():
+    repositorio = RepositorioEstoque(_ConexaoComFalhaDeIntegridade())
+
+    with pytest.raises(sqlite3.IntegrityError) as excinfo:
+        repositorio.remover(1)
+
+    assert not isinstance(excinfo.value, ProdutoComMovimentacoes)
