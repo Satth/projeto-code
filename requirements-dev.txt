@@ -1,0 +1,3 @@
+# A aplicação usa apenas a biblioteca padrão (incluindo sqlite3).
+# A única dependência externa é o pytest, usada nos testes automatizados.
+pytest>=8.0,<10

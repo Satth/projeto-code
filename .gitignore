@@ -1,4 +1,12 @@
 .venv/
+venv/
 __pycache__/
 .pytest_cache/
 *.pyc
+*.pyo
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
