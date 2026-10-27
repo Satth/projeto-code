@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 
 from .banco import criar_conexao, criar_tabelas
-from .erros import DadosInvalidos, ErroDeEstoque
+from .erros import DadosInvalidos, ErroDeEstoque, SaldoDesatualizado
 from .repositorio import RepositorioEstoque
 from .servico import ServicoEstoque
 
@@ -160,6 +160,8 @@ def main():
                     break
                 else:
                     print("Opção inválida.")
+            except SaldoDesatualizado as erro:
+                print(f"Saldo desatualizado: {erro}")
             except ErroDeEstoque as erro:
                 print(f"Erro: {erro}")
             except ValueError as erro:
