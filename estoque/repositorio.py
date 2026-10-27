@@ -1,16 +1,29 @@
 """Operações de leitura e escrita no SQLite.
 
-O repositório sabe gravar e consultar registros. Ele não decide se uma
-saída é permitida, se o estoque está abaixo do mínimo ou se um preço é
-válido: essas regras pertencem ao domínio e ao serviço.
+O repositório sabe gravar e consultar registros. Ele valida os
+parâmetros recebidos na fronteira do banco e traduz os erros de
+integridade; as regras de negócio continuam no domínio e no serviço.
 """
 
 import sqlite3
 from dataclasses import dataclass
 from decimal import Decimal
 
-from .erros import NomeDuplicado, ProdutoComMovimentacoes, ProdutoNaoEncontrado
+from .erros import (
+    EstoqueInsuficiente,
+    MovimentacaoInconsistente,
+    NomeDuplicado,
+    ProdutoComMovimentacoes,
+    ProdutoNaoEncontrado,
+    SaldoDesatualizado,
+)
 from .produto import Produto
+from .validacao import (
+    validar_inteiro,
+    validar_observacao,
+    validar_quantidade_positiva,
+    validar_tipo_movimentacao,
+)
 
 CAMPOS_PRODUTO = "id, nome, preco_unitario, quantidade, quantidade_minima"
 
@@ -153,10 +166,21 @@ class RepositorioEstoque:
                 )
                 return cursor.rowcount > 0
         except sqlite3.IntegrityError as erro:
-            raise ProdutoComMovimentacoes(
-                "o produto possui movimentações e não pode ser removido; "
-                "preserve o histórico ou remova as movimentações primeiro"
-            ) from erro
+            nome_erro = getattr(erro, "sqlite_errorname", "")
+            if nome_erro in {
+                "SQLITE_CONSTRAINT_FOREIGNKEY",
+                "SQLITE_CONSTRAINT_TRIGGER",
+            }:
+                possui_historico = self._conexao.execute(
+                    "SELECT 1 FROM movimentacoes WHERE produto_id = ?",
+                    (produto_id,),
+                ).fetchone()
+                if possui_historico is not None:
+                    raise ProdutoComMovimentacoes(
+                        "o produto possui movimentações e não pode ser removido; "
+                        "preserve o histórico ou remova as movimentações primeiro"
+                    ) from erro
+            raise
 
     def aplicar_movimentacao(
         self,
@@ -169,26 +193,102 @@ class RepositorioEstoque:
     ):
         """Atualiza o saldo e grava o histórico na mesma transação.
 
-        Se a gravação do histórico falhar, o ``with`` da conexão desfaz
-        também a alteração de quantidade.
+        A atualização é condicional ao saldo lido pelo serviço. Se outro
+        processo alterar o saldo antes desta gravação, nenhuma linha é
+        atualizada e o histórico não é gravado. Se a gravação do histórico
+        falhar, o ``with`` da conexão desfaz também a alteração de quantidade.
         """
+        valores = self._validar_movimentacao(
+            produto_id=produto_id,
+            quantidade_anterior=quantidade_anterior,
+            nova_quantidade=nova_quantidade,
+            tipo=tipo,
+            quantidade=quantidade,
+            observacao=observacao,
+        )
+
         with self._conexao:
             cursor = self._conexao.execute(
-                "UPDATE produtos SET quantidade = ? WHERE id = ?",
-                (nova_quantidade, produto_id),
+                """
+                UPDATE produtos
+                   SET quantidade = ?
+                 WHERE id = ? AND quantidade = ?
+                """,
+                (
+                    valores["quantidade_nova"],
+                    valores["produto_id"],
+                    valores["quantidade_anterior"],
+                ),
             )
             if cursor.rowcount != 1:
-                raise ProdutoNaoEncontrado(
-                    f"produto {produto_id} não encontrado"
+                existe = self._conexao.execute(
+                    "SELECT 1 FROM produtos WHERE id = ?",
+                    (valores["produto_id"],),
+                ).fetchone()
+                if existe is None:
+                    raise ProdutoNaoEncontrado(
+                        f"produto {valores['produto_id']} não encontrado"
+                    )
+                raise SaldoDesatualizado(
+                    f"o saldo do produto {valores['produto_id']} mudou durante "
+                    "a operação; recarregue o produto e tente novamente"
                 )
-            self._registrar_movimentacao(
-                produto_id=produto_id,
-                tipo=tipo,
-                quantidade=quantidade,
-                quantidade_anterior=quantidade_anterior,
-                quantidade_nova=nova_quantidade,
-                observacao=observacao,
+            self._registrar_movimentacao(**valores)
+
+    @staticmethod
+    def _validar_movimentacao(
+        produto_id,
+        quantidade_anterior,
+        nova_quantidade,
+        tipo,
+        quantidade,
+        observacao,
+    ):
+        """Valida e normaliza os valores antes de qualquer escrita."""
+        produto_id = validar_inteiro(produto_id, "id do produto", minimo=1)
+        quantidade_anterior = validar_inteiro(
+            quantidade_anterior, "quantidade anterior"
+        )
+        nova_quantidade = validar_inteiro(nova_quantidade, "nova quantidade")
+        tipo = validar_tipo_movimentacao(tipo)
+        observacao = validar_observacao(observacao)
+
+        if tipo == "ajuste":
+            quantidade = validar_inteiro(quantidade, "quantidade do ajuste")
+            if quantidade != nova_quantidade:
+                raise MovimentacaoInconsistente(
+                    "no ajuste, a quantidade informada deve ser igual ao novo saldo"
+                )
+        else:
+            quantidade = validar_quantidade_positiva(
+                quantidade, "quantidade da movimentação"
             )
+            if tipo == "entrada":
+                if nova_quantidade != quantidade_anterior + quantidade:
+                    raise MovimentacaoInconsistente(
+                        "entrada incoerente: o novo saldo deve ser a soma do "
+                        "saldo anterior com a quantidade"
+                    )
+            else:
+                if quantidade > quantidade_anterior:
+                    raise EstoqueInsuficiente(
+                        f"saída de {quantidade} maior que o saldo disponível "
+                        f"{quantidade_anterior}"
+                    )
+                if nova_quantidade != quantidade_anterior - quantidade:
+                    raise MovimentacaoInconsistente(
+                        "saída incoerente: o novo saldo deve ser o saldo "
+                        "anterior menos a quantidade"
+                    )
+
+        return {
+            "produto_id": produto_id,
+            "quantidade_anterior": quantidade_anterior,
+            "quantidade_nova": nova_quantidade,
+            "tipo": tipo,
+            "quantidade": quantidade,
+            "observacao": observacao,
+        }
 
     def _registrar_movimentacao(
         self,
