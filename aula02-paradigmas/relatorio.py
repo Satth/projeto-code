@@ -6,9 +6,26 @@ def acima_do_minimo(venda):
     return venda["valor"] > VALOR_MINIMO
 
 
+def normalizar_categoria(categoria):
+    """devolve a forma usada para comparar e exibir a categoria.
+
+    A mesma funcao e usada pelo calculo do imposto e pelo agrupamento.
+    Assim, "tela", "Tela" e " TELA " viram a mesma chave legivel "Tela",
+    em vez de aparecerem separadas no relatorio.
+    """
+    if not isinstance(categoria, str) or not categoria.strip():
+        raise ValueError("categoria deve ser um texto nao vazio")
+    return categoria.strip().capitalize()
+
+
 def aplicar_imposto(venda):
-    """devolve uma nova venda com o imposto conforme a categoria."""
-    categoria = venda["categoria"].lower()
+    """devolve uma nova venda com o imposto conforme a categoria.
+
+    O enunciado atual do exercicio calcula uma deducao:
+    valor * (1 - imposto). A formula foi preservada; a duvida sobre se o
+    exercicio esperava deducao ou acrescimo esta registrada no README.
+    """
+    categoria = normalizar_categoria(venda["categoria"]).lower()
 
     if categoria == "periferico":
         imposto = 0.10
@@ -21,8 +38,8 @@ def aplicar_imposto(venda):
 
 
 def agrupar_por_categoria(acumulado, venda):
-    """Soma a venda no total da sua categoria."""
-    cat = venda["categoria"]
+    """Soma a venda no total da sua categoria normalizada."""
+    cat = normalizar_categoria(venda["categoria"])
     return {**acumulado, cat: acumulado.get(cat, 0) + venda["valor"]}
 
 
