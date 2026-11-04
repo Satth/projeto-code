@@ -28,3 +28,11 @@ class NomeDuplicado(ErroDeEstoque):
 
 class ProdutoComMovimentacoes(ErroDeEstoque):
     """O produto não pode ser removido porque possui histórico de movimentações."""
+
+
+class MovimentacaoInconsistente(ErroDeEstoque):
+    """Os saldos e a quantidade não formam uma movimentação coerente."""
+
+
+class SaldoDesatualizado(ErroDeEstoque):
+    """O saldo mudou entre a leitura e a gravação da movimentação."""

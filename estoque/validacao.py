@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from .erros import DadosInvalidos
 
 CENTAVOS = Decimal("0.01")
+TIPOS_MOVIMENTACAO = ("entrada", "saida", "ajuste")
 
 
 def validar_texto(valor, campo):
@@ -84,3 +85,11 @@ def validar_observacao(valor):
     if not isinstance(valor, str):
         raise DadosInvalidos("observação deve ser um texto")
     return valor.strip()
+
+
+def validar_tipo_movimentacao(valor):
+    """Garante que o tipo pertence ao contrato de movimentações."""
+    if not isinstance(valor, str) or valor not in TIPOS_MOVIMENTACAO:
+        tipos = ", ".join(TIPOS_MOVIMENTACAO)
+        raise DadosInvalidos(f"tipo de movimentação deve ser um de: {tipos}")
+    return valor
