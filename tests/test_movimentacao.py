@@ -2,9 +2,9 @@
 
 import pytest
 
-from estoque.erros import DadosInvalidos, EstoqueInsuficiente
-from estoque.movimentacao import Ajuste, Entrada, Movimentacao, Saida
-from estoque.produto import Produto
+from estoque.dominio.erros import DadosInvalidos, EstoqueInsuficiente
+from estoque.dominio.movimentacao import Ajuste, Entrada, Movimentacao, Saida
+from estoque.dominio.produto import Produto
 
 
 def test_entrada_aumenta_o_saldo():

@@ -1,20 +1,21 @@
-"""Regras de negócio do estoque, independentes de detalhes do SQLite.
+"""Casos de uso do estoque, independentes de detalhes do SQLite.
 
-O serviço recebe um repositório pronto. Ele não importa ``sqlite3`` nem
-monta SQL; apenas coordena as validações do domínio e as operações de
-persistência.
+O serviço recebe uma implementação do contrato ``RepositorioEstoquePorta``.
+Ele não importa ``sqlite3`` nem monta SQL; apenas coordena as validações
+do domínio e as operações de persistência.
 """
 
-from .erros import NomeDuplicado, ProdutoNaoEncontrado
-from .movimentacao import Ajuste, Entrada, Saida
-from .produto import Produto
-from .repositorio import ProdutoComId
+from ..dominio.erros import NomeDuplicado, ProdutoNaoEncontrado
+from ..dominio.movimentacao import Ajuste, Entrada, Saida
+from ..dominio.produto import Produto
+from .modelos import ProdutoComId
+from .portas import RepositorioEstoquePorta
 
 
 class ServicoEstoque:
     """Coordena produtos e movimentações sobre um repositório."""
 
-    def __init__(self, repositorio):
+    def __init__(self, repositorio: RepositorioEstoquePorta):
         self._repositorio = repositorio
 
     def cadastrar(

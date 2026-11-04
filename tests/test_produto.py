@@ -4,8 +4,8 @@ from decimal import Decimal
 
 import pytest
 
-from estoque.erros import DadosInvalidos, EstoqueInsuficiente
-from estoque.produto import Produto
+from estoque.dominio.erros import DadosInvalidos, EstoqueInsuficiente
+from estoque.dominio.produto import Produto
 
 
 def test_produto_valido_mantem_estado_e_valor_total():

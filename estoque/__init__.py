@@ -1,19 +1,20 @@
 """Domínio aplicado de controle de estoque.
 
-O pacote reúne a implementação integrada usada na demonstração:
+O pacote está organizado em camadas:
 
-- ``produto``: objeto de domínio e invariantes;
-- ``movimentacao``: contrato e operações de entrada, saída e ajuste;
-- ``banco``: conexão e schema SQLite;
-- ``repositorio``: leitura e escrita no SQLite;
-- ``servico``: regras de negócio que coordenam as operações.
+- ``dominio``: entidades, movimentações, validações e exceções;
+- ``aplicacao``: casos de uso, modelos de resultado e portas;
+- ``infraestrutura.sqlite``: conexão, schema e repositório concretos;
+- ``apresentacao``: interface de linha de comando.
 
-Os exercícios independentes das pastas ``aula02`` a ``aula06`` continuam
-existindo separadamente e não dependem deste pacote.
+A fachada pública expõe os contratos de domínio e de aplicação. Detalhes
+concretos de SQLite permanecem em ``estoque.infraestrutura.sqlite``.
 """
 
-from .banco import criar_conexao, criar_tabelas
-from .erros import (
+from .aplicacao.modelos import MovimentacaoRegistrada, ProdutoComId
+from .aplicacao.portas import RepositorioEstoquePorta
+from .aplicacao.servico import ServicoEstoque
+from .dominio.erros import (
     DadosInvalidos,
     ErroDeEstoque,
     EstoqueInsuficiente,
@@ -23,14 +24,8 @@ from .erros import (
     ProdutoNaoEncontrado,
     SaldoDesatualizado,
 )
-from .movimentacao import Ajuste, Entrada, Movimentacao, Saida
-from .produto import Produto
-from .repositorio import (
-    MovimentacaoRegistrada,
-    ProdutoComId,
-    RepositorioEstoque,
-)
-from .servico import ServicoEstoque
+from .dominio.movimentacao import Ajuste, Entrada, Movimentacao, Saida
+from .dominio.produto import Produto
 
 __all__ = [
     "Ajuste",
@@ -46,10 +41,8 @@ __all__ = [
     "ProdutoComId",
     "ProdutoComMovimentacoes",
     "ProdutoNaoEncontrado",
-    "RepositorioEstoque",
+    "RepositorioEstoquePorta",
     "Saida",
     "SaldoDesatualizado",
     "ServicoEstoque",
-    "criar_conexao",
-    "criar_tabelas",
 ]

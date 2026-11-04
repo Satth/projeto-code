@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from estoque.erros import (
+from estoque.dominio.erros import (
     DadosInvalidos,
     EstoqueInsuficiente,
     MovimentacaoInconsistente,
@@ -14,8 +14,8 @@ from estoque.erros import (
     ProdutoNaoEncontrado,
     SaldoDesatualizado,
 )
-from estoque.produto import Produto
-from estoque.repositorio import RepositorioEstoque
+from estoque.dominio.produto import Produto
+from estoque.infraestrutura.sqlite.repositorio import RepositorioEstoque
 
 
 def _aplicar(repositorio, produto_id, **alteracoes):

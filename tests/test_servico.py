@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from estoque.erros import (
+from estoque.dominio.erros import (
     DadosInvalidos,
     EstoqueInsuficiente,
     NomeDuplicado,

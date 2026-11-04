@@ -6,10 +6,10 @@ integridade; as regras de negócio continuam no domínio e no serviço.
 """
 
 import sqlite3
-from dataclasses import dataclass
 from decimal import Decimal
 
-from .erros import (
+from ...aplicacao.modelos import MovimentacaoRegistrada, ProdutoComId
+from ...dominio.erros import (
     EstoqueInsuficiente,
     MovimentacaoInconsistente,
     NomeDuplicado,
@@ -17,8 +17,8 @@ from .erros import (
     ProdutoNaoEncontrado,
     SaldoDesatualizado,
 )
-from .produto import Produto
-from .validacao import (
+from ...dominio.produto import Produto
+from ...dominio.validacao import (
     validar_inteiro,
     validar_observacao,
     validar_quantidade_positiva,
@@ -26,37 +26,6 @@ from .validacao import (
 )
 
 CAMPOS_PRODUTO = "id, nome, preco_unitario, quantidade, quantidade_minima"
-
-
-@dataclass(frozen=True)
-class ProdutoComId:
-    """Produto do domínio acompanhado do identificador gerado pelo banco."""
-
-    id: int
-    produto: Produto
-
-    @property
-    def nome(self):
-        return self.produto.nome
-
-    @property
-    def quantidade(self):
-        return self.produto.quantidade
-
-
-@dataclass(frozen=True)
-class MovimentacaoRegistrada:
-    """Uma linha do histórico, já convertida para um objeto legível."""
-
-    id: int
-    produto_id: int
-    produto_nome: str
-    tipo: str
-    quantidade: int
-    quantidade_anterior: int
-    quantidade_nova: int
-    observacao: str
-    criado_em: str
 
 
 def _linha_para_produto(linha):
