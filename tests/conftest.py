@@ -6,9 +6,9 @@ garantindo isolamento e evitando contaminar o banco local ``estoque.db``.
 
 import pytest
 
-from estoque.banco import criar_conexao, criar_tabelas
-from estoque.repositorio import RepositorioEstoque
-from estoque.servico import ServicoEstoque
+from estoque.aplicacao.servico import ServicoEstoque
+from estoque.infraestrutura.sqlite.banco import criar_conexao, criar_tabelas
+from estoque.infraestrutura.sqlite.repositorio import RepositorioEstoque
 
 
 @pytest.fixture
